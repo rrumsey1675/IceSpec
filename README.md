@@ -15,11 +15,7 @@ This repository provides tools for processing hyperspectral ice core imagery, in
 
 
 ## Installation
-Clone the repository and set up the environment:
-```bash
-git clone https://hsi.um.maine.edu/hsi/stat.git
-cd stat
-```
+Clone the repository and set up the environment.
 
 Create conda environment:
 ```bash
