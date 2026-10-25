@@ -1,0 +1,298 @@
+#+PROPERTY: header-args :comments no :tangle-mode (identity #o444)
+#+PROPERTY: header-args:shell :comments no :tangle-mode (identity #o555)
+
+* Docker
+
+This directory contains scripts and files that are related to
+*creating*, *installing*, and *using* the docker image for
+development and testing purposes.
+
+
+** Overview
+
+I've decided to make the files in this directory generated from this
+org file. The generated files will be created as read-only files,
+and will contain a header to discourage direct editing. This should
+make this =README.org= a single cohesive document for anything related
+to Docker. If we find that things are too convoluted, confusing, or
+that it just isn't working, I reserve the right to swiftly ditch this
+approach.
+
+Org files are most easily edited using Emacs, but org files are
+supported by GitLab, so this file should be rendered properly in the
+browser.
+
+*** Generated files
+
+This =README.org= generates the following scripts for Docker
+development. The details for each file will be provided later.
+
+Before I forget, to generate these files from Emacs, either run
+=org-babel-tangle= (=C-c C-v t=) in Emacs, or run the following
+command in the terminal:
+
+#+begin_src bash
+emacs --batch --eval "(require 'org)" --eval '(org-babel-tangle-file "README.org")'  
+#+end_src
+
+#+RESULTS:
+
+
+- [[file:Dockerfile]] :: Docker image build script
+- [[file:install.sh]] :: Bash script for installing and setting up the
+  docker image packages
+- [[file:jovyan-install.sh]] :: Bash script for installing additional
+  custom items for the =jovyan= user
+- [[file:Makefile]] :: Used to build, upload, and run the docker image
+
+
+
+* Docker Image Scripts
+
+This section contains the scripts for building the project's Docker
+image.
+
+** [[file:Dockerfile]]
+
+In this section we define the [[file:Dockerfile]]. We use the [[https://hub.docker.com/r/jupyter/datascience-notebook/][Official
+Jupyter Data Science Docker Image]] as a starting point, and then we
+customize it with additional install scripts.  I've selected version
+=ubuntu-22.04=.
+
+#+BEGIN_SRC docker :tangle Dockerfile
+######################################################################
+# This file is read-only. To edit, change the README.org file.
+######################################################################
+
+FROM jupyter/datascience-notebook:ubuntu-22.04
+#+END_SRC
+
+The items in the =install.sh= script are installed by root, so we
+change to that user.  For the custom installation script, you first
+have to copy it to the docker image, and then you can run it.  We
+might as well remove an install scripts after they have completed so
+that the image is smaller.
+
+#+BEGIN_SRC docker :tangle Dockerfile
+USER root
+COPY install.sh .
+RUN ./install.sh && rm ./install.sh
+#+END_SRC
+
+After system wide installations have completed, we run =jovyan=
+specific customizations.
+
+#+BEGIN_SRC docker :tangle Dockerfile
+USER jovyan
+COPY jovyan-install.sh .
+RUN ./jovyan-install.sh && rm ./jovyan-install.sh
+#+END_SRC
+
+As before, we remove the install script after completion.
+
+** [[file:install.sh]]
+
+Here we create [[file:install.sh]]. This script contains additional
+packages and other custom tweaks to the [[file:Dockerfile]] generated in
+the previous section. These are system wide packages and changes that
+require super user access.
+
+First, add the obligatory read-only statement, and make sure the
+script does not prompt for confirmation.
+
+#+BEGIN_SRC shell :tangle install.sh :shebang #!/usr/bin/env bash
+######################################################################
+# This file is read-only. To edit, change the README.org file.
+######################################################################
+
+export DEBIAN_FRONTEND=noninteractive
+#+END_SRC
+
+*** Update system package information
+
+Next we do some system updates so that packages are ready to be installed.
+
+#+BEGIN_SRC shell :tangle install.sh
+apt-get update 
+#+END_SRC 
+
+*** The =apt-utils= package
+
+To suppress warnings about package configuration, install the
+=apt-utils= package.  We will filter out the warning about =apt-utils=
+not being installed so that we don't pull all our hair out.
+
+#+BEGIN_SRC shell :tangle install.sh
+apt-get install -y --no-install-recommends apt-utils 2>&1 | grep -v "debconf: delaying package configuration, since apt-utils is not installed"
+#+END_SRC
+
+**** Software and security upgrades
+
+We have already performed an update, but we would like our image to
+have the latest software and security updates. Perform this upgrade
+now.
+
+#+BEGIN_SRC shell :tangle install.sh
+apt-get -y upgrade
+#+END_SRC
+
+*** Install packages
+
+Every time =apt-get= is issued, the command should agree to install
+automatically by using the =-y= flag.
+
+** [[file:jovyan-install.sh]]
+
+This section generates the [[file:jovyan-install.sh]] script. In general,
+we prefer to use the apt system to install packages, but Ubuntu does
+not contain all of the packages and necessary Python-related software
+that we require.
+
+In some cases, we cannot use the apt packaging system, and we have to
+use alternative methods, such as installing some particular Python or
+R packages.  These will be done using the =jovyan= user, which is
+system user created in the [[https://hub.docker.com/r/jupyter/datascience-notebook/][Official Jupyter Data Science Docker
+Image]]. Thus, user-specific-install instructions are added to the
+[[file:jovyan-install.sh]] file.
+
+Make sure people know the file is read-only.
+
+#+BEGIN_SRC shell :tangle jovyan-install.sh :shebang #!/usr/bin/env bash
+######################################################################
+# This file is read-only. To edit, change the README.org file.
+######################################################################
+#+END_SRC
+
+*** Python packages
+
+The [[https://hub.docker.com/r/jupyter/datascience-notebook/][Official Jupyter Data Science Docker Image]] uses =conda= instead of
+=pip= for the Jupyter related system. Add additional packages as
+needed.
+
+#+BEGIN_SRC shell :tangle jovyan-install.sh
+conda install -n base conda-libmamba-solver
+conda config --set solver libmamba
+conda install -y testbook spectral astropy photutils opencv netcdf4 \
+      xarray
+#+END_SRC
+
+
+** [[file:Makefile]]
+
+To help simplify the Docker image build process, we will use a
+[[file:Makefile]] for building and uploading the docker image to the
+project registry.  First, we create some helpful variables.  (*NOTE:
+GitLab serves the docker registry on port 5000? I will have to verify
+this --Mark*)
+
+#+BEGIN_SRC makefile :tangle Makefile
+######################################################################
+# This file is read-only. To edit, change the README.org file.
+######################################################################
+#+END_SRC
+
+*** Makefile Variables
+
+Any good Makefile needs variables to help with readability, and to
+ensure that literals are not duplicated throughout the file. We place
+them at the top of the file.
+
+#+BEGIN_SRC makefile :tangle Makefile
+registry_port:=5050
+registry:=hsi.um.maine.edu
+project_path:=/hsi/hsi-tools
+build_tag:=$(shell date +'%Y%m%d')
+tag:=latest
+build_name:=$(registry):$(registry_port)$(project_path):$(build_tag)
+run_name:=$(registry):$(registry_port)$(project_path):$(tag)
+jupyter_port:=8888
+#+END_SRC
+
+A few notes about the variable names.  The =build_tag= name is created
+from the current date.  The =run_name= is used for the =serve= and
+=bash= targets which are defined below.  By default, =latest= is an
+alias for the most recent build =tag=. If you want to run a specific
+build tag, specify it when make is invoked.  For example,
+
+#+BEGIN_SRC shell
+make serve tag=20231102
+#+END_SRC
+
+will server the docker image generated on November 2, 2023.
+
+*** Makefile PHONY Targets
+
+The =make= program should know which targets will not actually be a
+file generated. For example, the =build= target does not generate a
+file named =build=. These targets are known as =PHONY=.
+
+ #+BEGIN_SRC makefile :tangle Makefile
+PHONY=build upload serve bash
+ #+END_SRC
+
+While usually it's probably OK to not specify =PHONY= targets, it's
+best practice to provide them.
+ 
+*** Makefile Build Targets
+
+The =build= target builds the image and tags it with the date the
+image is created.  The format used for the =build_tag= is *YYYYMMDD*.
+After a successful build, the build is aliased to latest.
+
+#+BEGIN_SRC makefile :tangle Makefile
+build:
+	docker build -t $(build_name) .
+	docker tag $(build_name) $(run_name)
+#+END_SRC
+
+After a successful build, we want to push the docker image to the
+repository so that we can use it.  Typing =make upload= will do this.
+The =upload= target also uploads the =latest= build.
+
+*NOTE:* You need to have a personal access token (PAT) that allows you
+to interact with the GitLab API for this to work.  You can obtain a
+PAT under [[https://hsi.um.maine.edu/-/profile/personal_access_tokens][Preferences->Access Tokens]], and then add a PAT with
+scope of *API*.  Locally, you will have to
+
+#+BEGIN_SRC shell
+docker login hsi.um.maine.edu:5050 -u USERNAME
+#+END_SRC
+
+and provide your GitLab user name along with the *PAT as the
+password*. Also make sure you are specifying the port the registry is
+exposed on. For the hsi server, this port is 5050. 
+
+#+BEGIN_SRC makefile :tangle Makefile
+upload:
+	docker push $(build_name)
+	docker push $(run_name)
+#+END_SRC
+
+*** Makefile Run Targets
+
+After the docker image is built, we want an easy way to start Jupyter
+Notebooks locally.  The following command will start Jupyter Notebook
+on port 8888. 
+
+#+BEGIN_SRC makefile :tangle Makefile
+serve:
+	docker run -p $(jupyter_port):8888 --rm -v "$(PWD)":/home/jovyan/ \
+                   $(run_name)
+#+END_SRC
+
+Sometimes we want to start the docker image as a bash shell.  This is
+how you do that.
+
+#+BEGIN_SRC makefile :tangle Makefile
+bash:
+	docker run -p $(jupyter_port):8888 --rm -v "$(PWD)":/home/jovyan/ \
+                   -it --cpus="4" $(run_name) bash
+#+END_SRC
+
+
+For Emacs users, start the server and connect using an external tool like [[https://github.com/millejoh/emacs-ipython-notebook][ein]].
+
+
+#  LocalWords:  args Dockerfile README GitLab src emacs eval jovyan
+#  LocalWords:  Jupyter ubuntu jupyter FRONTEND noninteractive utils
+#  LocalWords:  debconf conda testbook YYYYMMDD PWD ein
